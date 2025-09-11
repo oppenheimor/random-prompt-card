@@ -50,9 +50,9 @@ const openedCards = ref(new Set<number>())
 const flippingToFront = ref(new Set<number>())
 
 // 打开卡片详情
-const openCard = (prompt: any) => {
-  // 立即设置选中的卡片和旋转状态
-  selectedCard.value = prompt
+const openCard = (prompt: any, index: number) => {
+  // 立即设置选中的卡片和旋转状态，并添加显示索引
+  selectedCard.value = { ...prompt, displayIndex: index }
   isFlipping.value = true
 
   // 短暂延迟后显示弹窗，让旋转动画先完成
@@ -85,6 +85,8 @@ const closeModal = () => {
           // 动画中点时标记为已打开（切换内容）
           setTimeout(() => {
             openedCards.value.add(cardId)
+            // 保存到缓存
+            saveToCache()
           }, 300) // 动画中点
 
           // 翻转动画完成后，移除翻转状态
@@ -107,6 +109,8 @@ const closeModal = () => {
         // 动画中点时标记为已打开
         setTimeout(() => {
           openedCards.value.add(cardId)
+          // 保存到缓存
+          saveToCache()
         }, 300)
 
         // 动画完成后移除翻转状态
@@ -129,22 +133,110 @@ const usePrompt = (prompt: any) => {
   })
 }
 
+// 缓存键名
+const CACHE_KEY = 'JQ_RANDOM_PROMPT_CARD_DATA'
+
 // 生成100张卡片数据
 const generatePromptList = () => {
   // 生成100张卡片，重复使用基础模板
   const fullList = []
-  for (let i = 1; i <= 100; i++) {
-    const baseIndex = (i - 1) % PROMPT_LIST.length
-    const basePrompt = PROMPT_LIST[baseIndex]
+  for (let i = 0; i < PROMPT_LIST.length; i++) {
+    const basePrompt = PROMPT_LIST[i]
     fullList.push({
       ...basePrompt,
-      id: i
+      id: i + 1
     })
   }
+  
+  // 使用 Fisher-Yates 洗牌算法随机打乱数组
+  for (let i = fullList.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [fullList[i], fullList[j]] = [fullList[j], fullList[i]]
+  }
+  
   return fullList
 }
 
-const promptList = generatePromptList()
+// 从缓存加载数据
+const loadFromCache = () => {
+  try {
+    const cached = localStorage.getItem(CACHE_KEY)
+    if (cached) {
+      const data = JSON.parse(cached)
+      if (data.promptList && data.openedCards) {
+        return data
+      }
+    }
+  } catch (error) {
+    console.error('加载缓存失败:', error)
+  }
+  return null
+}
+
+// 保存数据到缓存
+const saveToCache = () => {
+  try {
+    const data = {
+      promptList: promptList.value,
+      openedCards: Array.from(openedCards.value)
+    }
+    localStorage.setItem(CACHE_KEY, JSON.stringify(data))
+  } catch (error) {
+    console.error('保存缓存失败:', error)
+  }
+}
+
+// 初始化数据：优先使用缓存，否则生成新数据
+const initializeData = () => {
+  const cached = loadFromCache()
+  if (cached) {
+    // 使用缓存数据
+    return {
+      promptList: cached.promptList,
+      openedCards: new Set(cached.openedCards)
+    }
+  } else {
+    // 生成新数据
+    return {
+      promptList: generatePromptList(),
+      openedCards: new Set()
+    }
+  }
+}
+
+const { promptList: initialPromptList, openedCards: initialOpenedCards } = initializeData()
+const promptList = ref(initialPromptList)
+
+// 使用初始化的已打开卡片状态
+openedCards.value = initialOpenedCards
+
+// 重置功能
+const resetData = () => {
+  // 清除缓存
+  localStorage.removeItem(CACHE_KEY)
+  
+  // 重新生成随机数据
+  promptList.value = generatePromptList()
+  openedCards.value = new Set()
+  flippingToFront.value = new Set()
+  
+  // 关闭弹窗和图片预览
+  showModal.value = false
+  showImagePreview.value = false
+  selectedCard.value = null
+  previewImage.value = ''
+  
+  // 恢复页面滚动
+  document.body.style.overflow = ''
+  
+  // 平滑滚动到页面顶部
+  window.scrollTo({
+    top: 0,
+    behavior: 'smooth'
+  })
+  
+  showToast('数据已重置，生成新的随机卡片顺序！', 'success')
+}
 
 // 使用 Canvas 处理图片跨域的函数
 const canvasLoadImage = (imageUrl: string): Promise<string> => {
@@ -226,70 +318,84 @@ const closeImagePreview = () => {
 
 <template>
   <div class="app">
+    <header class="header">
+      <div class="header-content">
+        <h1 class="app-title">AI 提示词卡片抽签</h1>
+        <p class="app-subtitle">made by jiaqi shen</p>
+      </div>
+    </header>
     <main class="main">
       <div class="card-grid">
         <!-- 卡片显示：未打开显示背面，已打开显示正面 -->
-        <div v-for="prompt in promptList" :key="prompt.id" :class="{
+        <div v-for="(prompt, index) in promptList" :key="prompt.id" :class="{
           'card-back': !openedCards.has(prompt.id) && !flippingToFront.has(prompt.id),
           'card-front-grid': openedCards.has(prompt.id),
           'flipping': isFlipping && selectedCard && selectedCard.id === prompt.id,
           'flipping-to-front': flippingToFront.has(prompt.id),
           'opened': openedCards.has(prompt.id)
-        }" @click="!openedCards.has(prompt.id) ? openCard(prompt) : null">
+        }" @click="!openedCards.has(prompt.id) ? openCard(prompt, index) : null">
 
           <!-- 卡片背面内容（未打开时显示） -->
           <template v-if="!openedCards.has(prompt.id)">
             <div class="card-back-pattern"></div>
-            <div class="card-number-large">{{ prompt.id.toString().padStart(2, '0') }}</div>
+            <div class="card-number-large">{{ (index + 1).toString().padStart(2, '0') }}</div>
             <div class="card-back-title">AI 提示词</div>
           </template>
 
           <!-- 卡片正面内容（已打开时显示） -->
           <template v-else>
             <div class="card-header">
-              <div class="card-number">#{{ prompt.id.toString().padStart(3, '0') }}</div>
+              <div class="card-number">#{{ (index + 1).toString().padStart(3, '0') }}</div>
             </div>
             <div class="card-content-grid">
               <h3 class="card-title-grid">{{ prompt.name || '提示词标题' }}</h3>
               <div class="card-description-grid">{{ prompt.prompt }}</div>
             </div>
-            <div class="opened-indicator" @click.stop="openCard(prompt)">重新查看</div>
+            <div class="opened-indicator" @click.stop="openCard(prompt, index)">查看提示词</div>
           </template>
         </div>
       </div>
     </main>
 
+    <!-- 重置按钮 -->
+    <footer class="footer">
+      <button class="reset-button" @click="resetData">
+        重置卡片
+      </button>
+    </footer>
+
     <!-- 弹窗模态框 -->
     <div v-if="showModal" class="modal-overlay" @click="closeModal">
-      <div class="modal-content" @click.stop v-if="selectedCard">
+      <div class="modal-container" @click.stop v-if="selectedCard">
         <button class="close-button" @click="closeModal">×</button>
-
-        <!-- 卡片正面详情 -->
-        <div class="card-front" :class="`card-type-${(selectedCard.id % 5) + 1}`">
-          <div class="card-header">
-            <div class="card-number">#{{ selectedCard.id.toString().padStart(3, '0') }}</div>
-          </div>
-
-          <div class="card-content">
-            <h3 class="card-title">{{ selectedCard.name || '提示词标题' }}</h3>
-            <div class="card-description" :class="{ 'has-attention': selectedCard.attention }">
-              {{ selectedCard.prompt }}
+        <div class="modal-content">
+          <!-- 卡片正面详情 -->
+          <div class="card-front" :class="`card-type-${(selectedCard.displayIndex % 5) + 1}`">
+            <div class="card-header">
+              <div class="card-number">#{{ (selectedCard.displayIndex + 1).toString().padStart(3, '0') }}</div>
             </div>
-            <div v-if="selectedCard.attention" class="card-attention">
-              <strong>Tips：</strong>{{ selectedCard.attention }}
+
+            <div class="card-content">
+              <h3 class="card-title">{{ selectedCard.name || '提示词标题' }}</h3>
+              <div class="card-description" :class="{ 'has-attention': selectedCard.attention }">
+                {{ selectedCard.prompt }}
+              </div>
+              <div v-if="selectedCard.attention" class="card-attention">
+                <strong>Tips：</strong>{{ selectedCard.attention }}
+              </div>
             </div>
-          </div>
 
-          <div class="card-footer">
-            <button class="use-button" @click="usePrompt(selectedCard)">
-              复制提示词
-            </button>
-            <button class="use-button" @click="viewImage(selectedCard)">
-              查看效果图
-            </button>
-          </div>
+            <div class="card-footer">
+              <button class="use-button" @click="usePrompt(selectedCard)">
+                复制提示词
+              </button>
+              <button class="use-button" @click="viewImage(selectedCard)">
+                查看效果图
+              </button>
+            </div>
 
-          <div class="holographic-effect"></div>
+            <div class="holographic-effect"></div>
+          </div>
         </div>
       </div>
     </div>
@@ -335,9 +441,97 @@ const closeImagePreview = () => {
 </template>
 
 <style scoped>
+.app {
+  min-height: 100vh;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
+
+/* 头部样式 */
+.header {
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+  padding: 2rem 0;
+  text-align: center;
+}
+
+.header-content {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 0 1rem;
+}
+
+.app-title {
+  font-family: 'Inter', sans-serif;
+  font-size: 2.5rem;
+  font-weight: 700;
+  color: white;
+  margin: 0 0 0.5rem 0;
+  text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+  letter-spacing: -0.02em;
+}
+
+.app-subtitle {
+  font-family: 'Inter', sans-serif;
+  font-size: 1rem;
+  font-weight: 400;
+  color: rgba(255, 255, 255, 0.8);
+  margin: 0;
+  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.2);
+  letter-spacing: 0.02em;
+}
+
 .main {
   max-width: 1400px;
   margin: 0 auto;
+}
+
+/* 底部样式 */
+.footer {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 2rem 1rem;
+  text-align: center;
+}
+
+.reset-button {
+  font-family: 'Inter', sans-serif;
+  background: linear-gradient(135deg, #ff6b6b, #ee5a6f);
+  color: white;
+  border: none;
+  padding: 1rem 2rem;
+  border-radius: 30px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  font-size: 1rem;
+  letter-spacing: 0.02em;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  box-shadow: 0 8px 25px rgba(255, 107, 107, 0.3);
+  text-transform: none;
+}
+
+.reset-button:hover {
+  background: linear-gradient(135deg, #ee5a6f, #e74c3c);
+  transform: translateY(-2px) scale(1.05);
+  box-shadow: 0 12px 30px rgba(255, 107, 107, 0.4);
+}
+
+.reset-button:active {
+  transform: translateY(0) scale(1);
+  box-shadow: 0 6px 20px rgba(255, 107, 107, 0.3);
+}
+
+.reset-icon {
+  font-size: 1.2rem;
+  display: inline-block;
+  transition: transform 0.3s ease;
+}
+
+.reset-button:hover .reset-icon {
+  transform: rotate(180deg);
 }
 
 .card-grid {
@@ -490,18 +684,23 @@ const closeImagePreview = () => {
   backdrop-filter: blur(5px);
 }
 
-.modal-content {
+.modal-container {
   position: relative;
   max-width: 90vw;
   max-height: 90vh;
-  overflow: auto;
   animation: scaleIn 0.5s ease;
+}
+
+.modal-content {
+  max-height: 90vh;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .close-button {
   position: absolute;
-  top: -10px;
-  right: -10px;
+  top: -16px;
+  right: -16px;
   width: 40px;
   height: 40px;
   border-radius: 50%;
@@ -533,9 +732,27 @@ const closeImagePreview = () => {
     0 8px 24px rgba(0, 0, 0, 0.2);
   border: 3px solid #ddd;
   position: relative;
-  overflow: hidden;
   width: 400px;
   max-width: 90vw;
+}
+
+/* 美化滚动条 */
+.modal-content::-webkit-scrollbar {
+  width: 6px;
+}
+
+.modal-content::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 3px;
+}
+
+.modal-content::-webkit-scrollbar-thumb {
+  background: linear-gradient(45deg, #667eea, #764ba2);
+  border-radius: 3px;
+}
+
+.modal-content::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(45deg, #5a6fd8, #6a419a);
 }
 
 .card-type-1 {
@@ -931,7 +1148,7 @@ const closeImagePreview = () => {
   max-height: 95vh;
   background: white;
   border-radius: 20px;
-  overflow: hidden;
+  /* overflow: hidden; */
   box-shadow: 0 25px 80px rgba(0, 0, 0, 0.6);
   display: flex;
   flex-direction: column;
@@ -972,7 +1189,8 @@ const closeImagePreview = () => {
   justify-content: center;
   padding: 4rem 2rem;
   min-height: 400px;
-  color: #666;
+  color: #323232;
+  width: 300px;
 }
 
 .loading-spinner {
@@ -1070,7 +1288,7 @@ const closeImagePreview = () => {
   font-family: 'Inter', sans-serif;
   font-size: 1.4rem;
   font-weight: 600;
-  color: #333;
+  color: #323232;
   margin: 0 0 1rem 0;
   text-align: center;
   letter-spacing: -0.02em;
@@ -1089,6 +1307,18 @@ const closeImagePreview = () => {
 
 /* 响应式设计 */
 @media (max-width: 768px) {
+  .app-title {
+    font-size: 2rem;
+  }
+
+  .app-subtitle {
+    font-size: 0.9rem;
+  }
+
+  .header {
+    padding: 1.5rem 0;
+  }
+
   .card-grid {
     grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
     padding: 1rem;
@@ -1118,6 +1348,18 @@ const closeImagePreview = () => {
 }
 
 @media (max-width: 480px) {
+  .app-title {
+    font-size: 1.5rem;
+  }
+
+  .app-subtitle {
+    font-size: 0.8rem;
+  }
+
+  .header {
+    padding: 1rem 0;
+  }
+
   .card-grid {
     grid-template-columns: repeat(3, 1fr);
     gap: 0.6rem;
@@ -1146,6 +1388,15 @@ const closeImagePreview = () => {
 
   .use-button {
     width: 100%;
+  }
+
+  .footer {
+    padding: 1.5rem 0.5rem;
+  }
+
+  .reset-button {
+    padding: 0.8rem 3.5rem;
+    font-size: 0.9rem;
   }
 
   .card-title-grid {
