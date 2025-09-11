@@ -2,6 +2,15 @@
 import { ref } from 'vue'
 import { PROMPT_LIST } from './constant/index'
 
+// 提示词接口定义
+interface Prompt {
+  id: number
+  name: string
+  prompt: string
+  attention?: string
+  imgUrl?: string
+}
+
 // Toast 消息系统
 interface ToastMessage {
   id: number
@@ -35,7 +44,7 @@ const removeToast = (id: number) => {
 
 // 弹窗控制
 const showModal = ref(false)
-const selectedCard = ref<any>(null)
+const selectedCard = ref<(Prompt & { displayIndex: number }) | null>(null)
 const isFlipping = ref(false)
 
 // 图片预览弹窗控制
@@ -50,7 +59,7 @@ const openedCards = ref(new Set<number>())
 const flippingToFront = ref(new Set<number>())
 
 // 打开卡片详情
-const openCard = (prompt: any, index: number) => {
+const openCard = (prompt: Prompt, index: number) => {
   // 立即设置选中的卡片和旋转状态，并添加显示索引
   selectedCard.value = { ...prompt, displayIndex: index }
   isFlipping.value = true
@@ -124,7 +133,7 @@ const closeModal = () => {
 }
 
 // 使用提示词的方法
-const usePrompt = (prompt: any) => {
+const usePrompt = (prompt: Prompt) => {
   navigator.clipboard.writeText(prompt.prompt).then(() => {
     showToast(`提示词已复制到剪贴板！\n\n${prompt.prompt.substring(0, 100)}...`)
   }).catch(() => {
@@ -137,9 +146,9 @@ const usePrompt = (prompt: any) => {
 const CACHE_KEY = 'JQ_RANDOM_PROMPT_CARD_DATA'
 
 // 生成100张卡片数据
-const generatePromptList = () => {
+const generatePromptList = (): Prompt[] => {
   // 生成100张卡片，重复使用基础模板
-  const fullList = []
+  const fullList: Prompt[] = []
   for (let i = 0; i < PROMPT_LIST.length; i++) {
     const basePrompt = PROMPT_LIST[i]
     fullList.push({
@@ -158,7 +167,7 @@ const generatePromptList = () => {
 }
 
 // 从缓存加载数据
-const loadFromCache = () => {
+const loadFromCache = (): { promptList: Prompt[], openedCards: number[] } | null => {
   try {
     const cached = localStorage.getItem(CACHE_KEY)
     if (cached) {
@@ -187,7 +196,7 @@ const saveToCache = () => {
 }
 
 // 初始化数据：优先使用缓存，否则生成新数据
-const initializeData = () => {
+const initializeData = (): { promptList: Prompt[], openedCards: Set<number> } => {
   const cached = loadFromCache()
   if (cached) {
     // 使用缓存数据
@@ -199,13 +208,13 @@ const initializeData = () => {
     // 生成新数据
     return {
       promptList: generatePromptList(),
-      openedCards: new Set()
+      openedCards: new Set<number>()
     }
   }
 }
 
 const { promptList: initialPromptList, openedCards: initialOpenedCards } = initializeData()
-const promptList = ref(initialPromptList)
+const promptList = ref<Prompt[]>(initialPromptList)
 
 // 使用初始化的已打开卡片状态
 openedCards.value = initialOpenedCards
@@ -274,7 +283,7 @@ const getImageUrl = (imgName: string): string => {
 }
 
 // 查看图片方法
-const viewImage = async (prompt: any) => {
+const viewImage = async (prompt: Prompt) => {
   if (!prompt.imgUrl) {
     showToast('该卡片暂无效果图', 'info')
     return
@@ -415,7 +424,7 @@ const closeImagePreview = () => {
         <div v-else-if="imageError" class="image-error">
           <div class="error-icon">⚠️</div>
           <p>图片加载失败</p>
-          <button class="retry-button" @click="viewImage(selectedCard)">重试</button>
+          <button class="retry-button" @click="selectedCard && viewImage(selectedCard)">重试</button>
         </div>
 
         <!-- 图片显示 -->
