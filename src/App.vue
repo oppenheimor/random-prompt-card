@@ -2,10 +2,47 @@
 import { ref } from 'vue'
 import { PROMPT_LIST } from './constant/index'
 
+// Toast 消息系统
+interface ToastMessage {
+  id: number
+  message: string
+  type: 'success' | 'error' | 'info'
+  duration?: number
+}
+
+const toasts = ref<ToastMessage[]>([])
+let toastIdCounter = 0
+
+// 显示 toast 消息
+const showToast = (message: string, type: 'success' | 'error' | 'info' = 'info', duration = 3000) => {
+  const id = ++toastIdCounter
+  const toast: ToastMessage = { id, message, type, duration }
+  toasts.value.push(toast)
+
+  // 自动移除 toast
+  setTimeout(() => {
+    removeToast(id)
+  }, duration)
+}
+
+// 移除 toast
+const removeToast = (id: number) => {
+  const index = toasts.value.findIndex(toast => toast.id === id)
+  if (index > -1) {
+    toasts.value.splice(index, 1)
+  }
+}
+
 // 弹窗控制
 const showModal = ref(false)
 const selectedCard = ref<any>(null)
 const isFlipping = ref(false)
+
+// 图片预览弹窗控制
+const showImagePreview = ref(false)
+const previewImage = ref('')
+const imageLoading = ref(false)
+const imageError = ref(false)
 
 // 已打开的卡片状态管理
 const openedCards = ref(new Set<number>())
@@ -22,11 +59,16 @@ const openCard = (prompt: any) => {
   setTimeout(() => {
     showModal.value = true
     isFlipping.value = false
+    // 禁止页面滚动
+    document.body.style.overflow = 'hidden'
   }, 600) // 旋转动画持续时间
 }
 
 // 关闭弹窗
 const closeModal = () => {
+  // 恢复页面滚动
+  document.body.style.overflow = ''
+
   // 为弹窗添加关闭动画
   const modalOverlay = document.querySelector('.modal-overlay')
   if (modalOverlay) {
@@ -39,12 +81,12 @@ const closeModal = () => {
         // 检查卡片是否已经是正面状态
         if (!openedCards.value.has(cardId)) {
           flippingToFront.value.add(cardId)
-          
+
           // 动画中点时标记为已打开（切换内容）
           setTimeout(() => {
             openedCards.value.add(cardId)
           }, 300) // 动画中点
-          
+
           // 翻转动画完成后，移除翻转状态
           setTimeout(() => {
             flippingToFront.value.delete(cardId)
@@ -61,12 +103,12 @@ const closeModal = () => {
       // 检查卡片是否已经是正面状态
       if (!openedCards.value.has(cardId)) {
         flippingToFront.value.add(cardId)
-        
+
         // 动画中点时标记为已打开
         setTimeout(() => {
           openedCards.value.add(cardId)
         }, 300)
-        
+
         // 动画完成后移除翻转状态
         setTimeout(() => {
           flippingToFront.value.delete(cardId)
@@ -80,10 +122,10 @@ const closeModal = () => {
 // 使用提示词的方法
 const usePrompt = (prompt: any) => {
   navigator.clipboard.writeText(prompt.prompt).then(() => {
-    alert(`提示词已复制到剪贴板！\n\n${prompt.prompt.substring(0, 100)}...`)
+    showToast(`提示词已复制到剪贴板！\n\n${prompt.prompt.substring(0, 100)}...`)
   }).catch(() => {
     // 如果剪贴板 API 不可用，显示提示词内容
-    alert(`提示词：\n\n${prompt.prompt}`)
+    showToast(`提示词：\n\n${prompt.prompt}`)
   })
 }
 
@@ -103,6 +145,83 @@ const generatePromptList = () => {
 }
 
 const promptList = generatePromptList()
+
+// 使用 Canvas 处理图片跨域的函数
+const canvasLoadImage = (imageUrl: string): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const canvas = document.createElement('canvas')
+    const ctx = canvas.getContext('2d')
+    const img = new Image()
+
+    img.crossOrigin = 'anonymous'
+
+    img.onload = function () {
+      canvas.width = img.width
+      canvas.height = img.height
+
+      ctx?.drawImage(img, 0, 0)
+
+      const dataURL = canvas.toDataURL('image/png', 0.9)
+      resolve(dataURL)
+    }
+
+    img.onerror = () => reject(new Error('图片加载失败'))
+    img.src = imageUrl
+  })
+}
+
+// 动态导入图片函数
+const getImageUrl = (imgName: string): string => {
+  try {
+    // 使用 Vite 的动态导入功能
+    return new URL(`./assets/${imgName}`, import.meta.url).href
+  } catch (error) {
+    console.error('图片路径解析失败:', error)
+    return ''
+  }
+}
+
+// 查看图片方法
+const viewImage = async (prompt: any) => {
+  if (!prompt.imgUrl) {
+    showToast('该卡片暂无效果图', 'info')
+    return
+  }
+
+  imageLoading.value = true
+  imageError.value = false
+  showImagePreview.value = true
+  // 禁止页面滚动
+  document.body.style.overflow = 'hidden'
+
+  try {
+    const imageUrl = getImageUrl(prompt.imgUrl)
+
+    // 尝试使用 Canvas 处理图片
+    try {
+      const processedImage = await canvasLoadImage(imageUrl)
+      previewImage.value = processedImage
+    } catch (canvasError) {
+      // 如果 Canvas 处理失败，直接使用原图片 URL
+      console.warn('Canvas 处理失败，使用原图片:', canvasError)
+      previewImage.value = imageUrl
+    }
+  } catch (error) {
+    console.error('图片加载失败:', error)
+    imageError.value = true
+  } finally {
+    imageLoading.value = false
+  }
+}
+
+// 关闭图片预览
+const closeImagePreview = () => {
+  showImagePreview.value = false
+  previewImage.value = ''
+  imageError.value = false
+  // 恢复页面滚动
+  document.body.style.overflow = ''
+}
 </script>
 
 <template>
@@ -110,23 +229,21 @@ const promptList = generatePromptList()
     <main class="main">
       <div class="card-grid">
         <!-- 卡片显示：未打开显示背面，已打开显示正面 -->
-        <div v-for="prompt in promptList" :key="prompt.id" 
-             :class="{ 
-               'card-back': !openedCards.has(prompt.id) && !flippingToFront.has(prompt.id),
-               'card-front-grid': openedCards.has(prompt.id),
-               'flipping': isFlipping && selectedCard && selectedCard.id === prompt.id,
-               'flipping-to-front': flippingToFront.has(prompt.id),
-               'opened': openedCards.has(prompt.id)
-             }"
-             @click="!openedCards.has(prompt.id) ? openCard(prompt) : null">
-          
+        <div v-for="prompt in promptList" :key="prompt.id" :class="{
+          'card-back': !openedCards.has(prompt.id) && !flippingToFront.has(prompt.id),
+          'card-front-grid': openedCards.has(prompt.id),
+          'flipping': isFlipping && selectedCard && selectedCard.id === prompt.id,
+          'flipping-to-front': flippingToFront.has(prompt.id),
+          'opened': openedCards.has(prompt.id)
+        }" @click="!openedCards.has(prompt.id) ? openCard(prompt) : null">
+
           <!-- 卡片背面内容（未打开时显示） -->
           <template v-if="!openedCards.has(prompt.id)">
             <div class="card-back-pattern"></div>
             <div class="card-number-large">{{ prompt.id.toString().padStart(2, '0') }}</div>
             <div class="card-back-title">AI 提示词</div>
           </template>
-          
+
           <!-- 卡片正面内容（已打开时显示） -->
           <template v-else>
             <div class="card-header">
@@ -134,10 +251,7 @@ const promptList = generatePromptList()
             </div>
             <div class="card-content-grid">
               <h3 class="card-title-grid">{{ prompt.name || '提示词标题' }}</h3>
-              <div class="card-description-grid">{{ prompt.prompt.substring(0, 80) }}...</div>
-              <div v-if="prompt.attention" class="card-attention-grid">
-                <strong>Tips：</strong>{{ prompt.attention.substring(0, 50) }}...
-              </div>
+              <div class="card-description-grid">{{ prompt.prompt }}</div>
             </div>
             <div class="opened-indicator" @click.stop="openCard(prompt)">重新查看</div>
           </template>
@@ -168,13 +282,54 @@ const promptList = generatePromptList()
 
           <div class="card-footer">
             <button class="use-button" @click="usePrompt(selectedCard)">
-              使用提示词
+              复制提示词
+            </button>
+            <button class="use-button" @click="viewImage(selectedCard)">
+              查看效果图
             </button>
           </div>
 
           <div class="holographic-effect"></div>
         </div>
       </div>
+    </div>
+
+    <!-- 图片预览弹窗 -->
+    <div v-if="showImagePreview" class="image-preview-overlay" @click="closeImagePreview">
+      <div class="image-preview-content" @click.stop>
+        <button class="image-close-button" @click="closeImagePreview">×</button>
+
+        <!-- 加载状态 -->
+        <div v-if="imageLoading" class="image-loading">
+          <div class="loading-spinner"></div>
+          <p>正在加载图片...</p>
+        </div>
+
+        <!-- 错误状态 -->
+        <div v-else-if="imageError" class="image-error">
+          <div class="error-icon">⚠️</div>
+          <p>图片加载失败</p>
+          <button class="retry-button" @click="viewImage(selectedCard)">重试</button>
+        </div>
+
+        <!-- 图片显示 -->
+        <div v-else class="image-container">
+          <img :src="previewImage" :alt="selectedCard?.name || '效果图'" class="preview-image"
+            @error="imageError = true" />
+        </div>
+      </div>
+    </div>
+
+    <!-- Toast 消息容器 -->
+    <div class="toast-container">
+      <transition-group name="toast" tag="div">
+        <div v-for="toast in toasts" :key="toast.id" :class="[
+          'toast',
+          `toast-${toast.type}`
+        ]" @click="removeToast(toast.id)">
+          <div class="toast-message">{{ toast.message }}</div>
+        </div>
+      </transition-group>
     </div>
   </div>
 </template>
@@ -719,20 +874,8 @@ const promptList = generatePromptList()
   font-size: 0.7rem;
   text-align: center;
   display: -webkit-box;
+  line-clamp: 3;
   -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.card-attention-grid {
-  color: rgba(0, 0, 0, 0.6);
-  font-size: 0.6rem;
-  line-height: 1.2;
-  padding: 0.3rem;
-  border-radius: 4px;
-  margin-top: 0.3rem;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
@@ -766,6 +909,183 @@ const promptList = generatePromptList()
   border-radius: 15px;
   pointer-events: none;
 }
+
+/* 图片预览弹窗样式 */
+.image-preview-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.95);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  backdrop-filter: blur(8px);
+}
+
+.image-preview-content {
+  position: relative;
+  max-width: 95vw;
+  max-height: 95vh;
+  background: white;
+  border-radius: 20px;
+  overflow: hidden;
+  box-shadow: 0 25px 80px rgba(0, 0, 0, 0.6);
+  display: flex;
+  flex-direction: column;
+}
+
+.image-close-button {
+  position: absolute;
+  top: -15px;
+  right: -15px;
+  width: 45px;
+  height: 45px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #ff4757, #ff3742);
+  color: white;
+  border: 3px solid white;
+  font-size: 1.8rem;
+  cursor: pointer;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+  transition: all 0.3s ease;
+  font-weight: bold;
+}
+
+.image-close-button:hover {
+  background: linear-gradient(135deg, #ff3742, #e63946);
+  transform: scale(1.1) rotate(90deg);
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.4);
+}
+
+/* 加载状态样式 */
+.image-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 4rem 2rem;
+  min-height: 400px;
+  color: #666;
+}
+
+.loading-spinner {
+  width: 50px;
+  height: 50px;
+  border: 4px solid #f3f3f3;
+  border-top: 4px solid #667eea;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin-bottom: 1.5rem;
+}
+
+@keyframes spin {
+  0% {
+    transform: rotate(0deg);
+  }
+
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+.image-loading p {
+  font-family: 'Inter', sans-serif;
+  font-size: 1.1rem;
+  margin: 0;
+  color: #555;
+}
+
+/* 错误状态样式 */
+.image-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 4rem 2rem;
+  min-height: 400px;
+  color: #666;
+}
+
+.error-icon {
+  font-size: 3rem;
+  margin-bottom: 1rem;
+}
+
+.image-error p {
+  font-family: 'Inter', sans-serif;
+  font-size: 1.1rem;
+  margin: 0 0 1.5rem 0;
+  color: #555;
+}
+
+.retry-button {
+  background: linear-gradient(45deg, #667eea, #764ba2);
+  color: white;
+  border: none;
+  padding: 0.8rem 1.5rem;
+  border-radius: 25px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  font-size: 0.95rem;
+}
+
+.retry-button:hover {
+  background: linear-gradient(45deg, #5a6fd8, #6a419a);
+  transform: scale(1.05);
+}
+
+/* 图片容器样式 */
+.image-container {
+  display: flex;
+  flex-direction: column;
+  max-height: 95vh;
+  overflow: hidden;
+}
+
+.preview-image {
+  max-width: 100%;
+  max-height: 70vh;
+  object-fit: contain;
+  background: #f8f9fa;
+  display: block;
+  margin: 0 auto;
+}
+
+.image-info {
+  padding: 1.5rem 2rem;
+  background: white;
+  border-top: 1px solid #eee;
+  flex-shrink: 0;
+}
+
+.image-title {
+  font-family: 'Inter', sans-serif;
+  font-size: 1.4rem;
+  font-weight: 600;
+  color: #333;
+  margin: 0 0 1rem 0;
+  text-align: center;
+  letter-spacing: -0.02em;
+}
+
+.image-description {
+  color: #666;
+  line-height: 1.6;
+  font-size: 1rem;
+  margin: 0;
+  text-align: left;
+  max-height: 150px;
+  overflow-y: auto;
+}
+
 
 /* 响应式设计 */
 @media (max-width: 768px) {
@@ -834,17 +1154,157 @@ const promptList = generatePromptList()
 
   .card-description-grid {
     font-size: 0.6rem;
-    -webkit-line-clamp: 2;
-  }
-
-  .card-attention-grid {
-    font-size: 0.55rem;
-    -webkit-line-clamp: 1;
+    line-clamp: 4;
+    -webkit-line-clamp: 4;
   }
 
   .opened-indicator {
     font-size: 0.55rem;
     padding: 0.15rem 0.3rem;
+  }
+
+  /* 移动端图片预览样式 */
+  .image-preview-content {
+    max-width: 95vw;
+    max-height: 90vh;
+    margin: 1rem;
+  }
+
+  .image-close-button {
+    width: 40px;
+    height: 40px;
+    font-size: 1.5rem;
+    top: -10px;
+    right: -10px;
+  }
+
+  .image-info {
+    padding: 1rem;
+  }
+
+  .image-title {
+    font-size: 1.2rem;
+  }
+
+  .image-description {
+    font-size: 0.9rem;
+    max-height: 120px;
+  }
+}
+
+/* Toast 样式 */
+.toast-container {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 3000;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 400px;
+  pointer-events: none;
+}
+
+.toast {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  background: #009b67;
+  border-radius: 12px;
+  padding: 16px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+  border-left: 4px solid;
+  pointer-events: auto;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  animation: slideIn 0.3s ease;
+  max-width: 100%;
+  word-wrap: break-word;
+}
+.toast-icon {
+  font-size: 18px;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.toast-message {
+  flex: 1;
+  font-size: 16px;
+  line-height: 1.4;
+  color: #f5f5f5;
+  white-space: pre-line;
+}
+
+
+/* Toast 动画 */
+.toast-enter-active,
+.toast-leave-active {
+  transition: all 0.3s ease;
+}
+
+.toast-enter-from {
+  opacity: 0;
+  transform: translateX(100%);
+}
+
+.toast-leave-to {
+  opacity: 0;
+  transform: translateX(100%);
+}
+
+.toast-move {
+  transition: transform 0.3s ease;
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* 移动端 Toast 样式 */
+@media (max-width: 768px) {
+  .toast-container {
+    top: 10px;
+    right: 10px;
+    left: 10px;
+    max-width: none;
+  }
+
+  .toast {
+    padding: 12px;
+  }
+
+  .toast-message {
+    font-size: 14px;
+  }
+
+  /* 移动端动画：从顶部滑入 */
+  .toast-enter-from {
+    opacity: 0;
+    transform: translateY(-100%);
+  }
+
+  .toast-leave-to {
+    opacity: 0;
+    transform: translateY(-100%);
+  }
+
+  @keyframes slideIn {
+    from {
+      opacity: 0;
+      transform: translateY(-100%);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
   }
 }
 </style>
