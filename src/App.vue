@@ -30,7 +30,7 @@ const closeModal = () => {
   // 为弹窗添加关闭动画
   const modalOverlay = document.querySelector('.modal-overlay')
   if (modalOverlay) {
-    modalOverlay.style.animation = 'fadeOut 0.3s ease'
+    (modalOverlay as any).style.animation = 'fadeOut 0.3s ease'
     setTimeout(() => {
       showModal.value = false
       // 弹窗消失后，只有当卡片还未打开时才触发翻转动画
