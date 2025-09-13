@@ -1,8 +1,0 @@
-{
-  "rewrites": [
-    {
-      "source": "/ai-prompt-card/:path*",
-      "destination": "/ai-prompt-card/index.html"
-    }
-  ]
-}
