@@ -158,10 +158,10 @@ const generatePromptList = (): Prompt[] => {
   }
   
   // 使用 Fisher-Yates 洗牌算法随机打乱数组
-  for (let i = fullList.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [fullList[i], fullList[j]] = [fullList[j], fullList[i]]
-  }
+  // for (let i = fullList.length - 1; i > 0; i--) {
+  //   const j = Math.floor(Math.random() * (i + 1));
+  //   [fullList[i], fullList[j]] = [fullList[j], fullList[i]]
+  // }
   
   return fullList
 }
